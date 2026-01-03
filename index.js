@@ -1,28 +1,62 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, ActivityType, Events } = require('discord.js');
+const { token } = require('./config.json');
+const fs = require('node:fs');
+const path = require('node:path');
 
-// Création d'une instance du client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent // Très important !
     ]
 });
 
-// Quand le bot est prêt
-client.once('ready', () => {
-    console.log(`Connecté en tant que ${client.user.tag} !`);
+// Collection pour stocker les commandes
+client.commands = new Collection();
+
+// Lecture des fichiers de commandes
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+
+for (const file of commandFiles) {
+	const filePath = path.join(commandsPath, file);
+	const command = require(filePath);
+	client.commands.set(command.data.name, command);
+}
+
+// Gestion des interactions (Slash Commands)
+client.on('interactionCreate', async interaction => {
+	if (!interaction.isChatInputCommand()) return;
+
+	const command = client.commands.get(interaction.commandName);
+	if (!command) return;
+
+	try {
+		await command.execute(interaction);
+	} catch (error) {
+		console.error(error);
+		await interaction.reply({ content: 'Erreur lors de l’exécution !', ephemeral: true });
+	}
 });
 
-// Système de réponse simple
-client.on('messageCreate', (message) => {
-    // Évite que le bot se réponde à lui-même
-    if (message.author.bot) return;
+client.once(Events.ClientReady, (c) => {
+	console.log(`Prêt ! Connecté en tant que ${c.user.tag}`);
 
-    if (message.content === '!ping') {
-        message.reply('Pong ! 🏓');
-    }
+    // Définit le statut du bot
+    client.user.setActivity('Code le serveur Yutil Cm', { type: ActivityType.Watching });
 });
 
-// Connexion avec le Token
-client.login('TON_TOKEN_ICI');
+const eventsPath = path.join(__dirname, 'events');
+const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+
+for (const file of eventFiles) {
+	const filePath = path.join(eventsPath, file);
+	const event = require(filePath);
+	if (event.once) {
+		client.once(event.name, (...args) => event.execute(...args));
+	} else {
+		client.on(event.name, (...args) => event.execute(...args));
+	}
+}
+
+client.login(token);
